@@ -9,6 +9,8 @@ alert_sent = False
 incident_start_time = None
 MAX_RESTART_ATTEMPTS = 3
 restart_attempts = 0
+RESPONSE_TIME_WARNING_MS = 500
+RESPONSE_TIME_CRITICAL_MS = 2000
 
 def log_message(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -19,7 +21,11 @@ def log_message(message):
 
 while True:
     try:
+        start_time = datetime.now()
         response = requests.get("http://127.0.0.1:5000/health")
+        end_time = datetime.now()
+        response_time_ms = (end_time - start_time).total_seconds() * 1000
+
         data = response.json()
 
         if response.status_code == 200 and data.get("status") == "ok":
@@ -28,7 +34,13 @@ while True:
                 log_message(f"✅ RECOVERY: Service is back online. Incident lasted {duration:.0f} seconds.")
                 incident_start_time = None
 
-            log_message(f"Service is healthy: {data}")
+            if response_time_ms >= RESPONSE_TIME_CRITICAL_MS:
+                log_message(f"🔴 Service is healthy but CRITICALLY SLOW: {response_time_ms:.0f}ms")
+            elif response_time_ms >= RESPONSE_TIME_WARNING_MS:
+                log_message(f"🟡 Service is healthy but slow: {response_time_ms:.0f}ms")
+            else:
+                log_message(f"Service is healthy: {data} ({response_time_ms:.0f}ms)")
+
             failure_count = 0
             alert_sent = False
             restart_attempts = 0
