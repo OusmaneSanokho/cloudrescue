@@ -6,7 +6,9 @@ import subprocess
 FAILURE_THRESHOLD = 3
 failure_count = 0
 alert_sent = False
-incident_start_time = None   # NEW
+incident_start_time = None
+MAX_RESTART_ATTEMPTS = 3
+restart_attempts = 0
 
 def log_message(message):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -29,6 +31,7 @@ while True:
             log_message(f"Service is healthy: {data}")
             failure_count = 0
             alert_sent = False
+            restart_attempts = 0
         else:
             failure_count += 1
             if incident_start_time is None:
@@ -47,11 +50,15 @@ while True:
         log_message(f"Service is DOWN - no response (failure #{failure_count})")
 
         if failure_count == FAILURE_THRESHOLD:
-            log_message("🔧 Attempting automatic recovery: restarting app.py")
-            subprocess.Popen(["python", "app.py"])
+            if restart_attempts < MAX_RESTART_ATTEMPTS:
+                restart_attempts += 1
+                log_message(f"🔧 Attempting automatic recovery (attempt {restart_attempts}/{MAX_RESTART_ATTEMPTS}): restarting app.py")
+                subprocess.Popen(["python", "app.py"])
+            else:
+                log_message("⛔ Max restart attempts reached. Manual intervention required.")
 
         if failure_count >= FAILURE_THRESHOLD and not alert_sent:
             log_message(f"🚨 ALERT: Service has failed {failure_count} times in a row!")
-            alert_sent = True 
+            alert_sent = True
 
     time.sleep(5)
