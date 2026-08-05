@@ -4,7 +4,7 @@ import logging
 import subprocess
 from datetime import datetime
 
-FAILURE_THRESHOLD = 3
+FAILURE_THRESHOLD = 2
 failure_count = 0
 alert_sent = False
 incident_start_time = None
@@ -66,7 +66,7 @@ while True:
 
         logging.error(f"Service is DOWN - no response (failure #{failure_count})")
 
-        if failure_count == FAILURE_THRESHOLD:
+        if failure_count % FAILURE_THRESHOLD:
             if restart_attempts < MAX_RESTART_ATTEMPTS:
                 restart_attempts += 1
                 logging.info(f"🔧 Attempting automatic recovery (attempt {restart_attempts}/{MAX_RESTART_ATTEMPTS}): restarting app.py")
