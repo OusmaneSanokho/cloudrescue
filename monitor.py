@@ -2,16 +2,18 @@ import requests
 import time
 import logging
 import subprocess
+import os
 from datetime import datetime
 
-FAILURE_THRESHOLD = 2
 failure_count = 0
 alert_sent = False
 incident_start_time = None
-MAX_RESTART_ATTEMPTS = 3
 restart_attempts = 0
-RESPONSE_TIME_WARNING_MS = 500
-RESPONSE_TIME_CRITICAL_MS = 2000
+FAILURE_THRESHOLD = int(os.environ.get("FAILURE_THRESHOLD", 3))
+MAX_RESTART_ATTEMPTS = int(os.environ.get("MAX_RESTART_ATTEMPTS", 3))
+RESPONSE_TIME_WARNING_MS = int(os.environ.get("RESPONSE_TIME_WARNING_MS", 500))
+RESPONSE_TIME_CRITICAL_MS = int(os.environ.get("RESPONSE_TIME_CRITICAL_MS", 2000))
+POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", 5))
 
 logging.basicConfig(
     filename="cloudrescue.log",
@@ -78,4 +80,4 @@ while True:
             logging.critical(f"🚨 ALERT: Service has failed {failure_count} times in a row!")
             alert_sent = True
 
-    time.sleep(5)
+    time.sleep(POLL_INTERVAL_SECONDS)
