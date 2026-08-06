@@ -9,6 +9,10 @@ failure_count = 0
 alert_sent = False
 incident_start_time = None
 restart_attempts = 0
+total_incidents = 0
+total_downtime_seconds = 0
+longest_incident_seconds = 0
+monitoring_start_time = datetime.now()
 FAILURE_THRESHOLD = int(os.environ.get("FAILURE_THRESHOLD", 3))
 MAX_RESTART_ATTEMPTS = int(os.environ.get("MAX_RESTART_ATTEMPTS", 3))
 RESPONSE_TIME_WARNING_MS = int(os.environ.get("RESPONSE_TIME_WARNING_MS", 500))
@@ -26,6 +30,22 @@ console = logging.StreamHandler()
 console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logging.getLogger().addHandler(console)
 
+
+def print_metrics():
+    total_monitoring_time = (datetime.now() - monitoring_start_time).total_seconds()
+    uptime_seconds = total_monitoring_time - total_downtime_seconds
+    availability = (uptime_seconds / total_monitoring_time) * 100 if total_monitoring_time > 0 else 100
+    mttr = (total_downtime_seconds / total_incidents) if total_incidents > 0 else 0
+
+    logging.info(
+        f"📊 METRICS — Incidents: {total_incidents}, "
+        f"Total downtime: {total_downtime_seconds:.0f}s, "
+        f"Longest incident: {longest_incident_seconds:.0f}s, "
+        f"MTTR: {mttr:.0f}s, "
+        f"Availability: {availability:.2f}%"
+    )
+
+
 while True:
     try:
         start_time = datetime.now()
@@ -40,6 +60,13 @@ while True:
                 duration = (datetime.now() - incident_start_time).total_seconds()
                 logging.info(f"✅ RECOVERY: Service is back online. Incident lasted {duration:.0f} seconds.")
                 incident_start_time = None
+
+                total_incidents += 1
+                total_downtime_seconds += duration
+                if duration > longest_incident_seconds:
+                    longest_incident_seconds = duration
+
+                print_metrics()
 
             if response_time_ms >= RESPONSE_TIME_CRITICAL_MS:
                 logging.error(f"🔴 Service is healthy but CRITICALLY SLOW: {response_time_ms:.0f}ms")
@@ -68,7 +95,7 @@ while True:
 
         logging.error(f"Service is DOWN - no response (failure #{failure_count})")
 
-        if failure_count % FAILURE_THRESHOLD:
+        if failure_count % FAILURE_THRESHOLD == 0:
             if restart_attempts < MAX_RESTART_ATTEMPTS:
                 restart_attempts += 1
                 logging.info(f"🔧 Attempting automatic recovery (attempt {restart_attempts}/{MAX_RESTART_ATTEMPTS}): restarting app.py")
