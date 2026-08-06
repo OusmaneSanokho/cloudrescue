@@ -3,16 +3,13 @@ import time
 import logging
 import subprocess
 import os
+import sqlite3
 from datetime import datetime
 
 failure_count = 0
 alert_sent = False
 incident_start_time = None
 restart_attempts = 0
-total_incidents = 0
-total_downtime_seconds = 0
-longest_incident_seconds = 0
-monitoring_start_time = datetime.now()
 FAILURE_THRESHOLD = int(os.environ.get("FAILURE_THRESHOLD", 3))
 MAX_RESTART_ATTEMPTS = int(os.environ.get("MAX_RESTART_ATTEMPTS", 3))
 RESPONSE_TIME_WARNING_MS = int(os.environ.get("RESPONSE_TIME_WARNING_MS", 500))
@@ -30,8 +27,50 @@ console = logging.StreamHandler()
 console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logging.getLogger().addHandler(console)
 
+def init_database():
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_time TEXT,
+            duration_seconds REAL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS monitor_metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    cursor.execute("SELECT value FROM monitor_metadata WHERE key = 'monitoring_start_time'")
+    row = cursor.fetchone()
+    if row is None:
+        cursor.execute(
+            "INSERT INTO monitor_metadata (key, value) VALUES (?, ?)",
+            ("monitoring_start_time", datetime.now().isoformat())
+        )
+    conn.commit()
+    conn.close()
+def get_monitoring_start_time():
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM monitor_metadata WHERE key = 'monitoring_start_time'")
+    row = cursor.fetchone()
+    conn.close()
+    return datetime.fromisoformat(row[0])
 
+def save_incident(start_time, duration_seconds):
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO incidents (start_time, duration_seconds) VALUES (?, ?)",
+        (start_time.isoformat(), duration_seconds)
+    )
+    conn.commit()
+    conn.close()
 def print_metrics():
+    total_incidents, total_downtime_seconds, longest_incident_seconds = calculate_metrics()
     total_monitoring_time = (datetime.now() - monitoring_start_time).total_seconds()
     uptime_seconds = total_monitoring_time - total_downtime_seconds
     availability = (uptime_seconds / total_monitoring_time) * 100 if total_monitoring_time > 0 else 100
@@ -45,6 +84,21 @@ def print_metrics():
         f"Availability: {availability:.2f}%"
     )
 
+def calculate_metrics():
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT duration_seconds FROM incidents")
+    rows = cursor.fetchall()
+    conn.close()
+
+    total_incidents = len(rows)
+    total_downtime_seconds = sum(row[0] for row in rows)
+    longest_incident_seconds = max((row[0] for row in rows), default=0)
+
+    return total_incidents, total_downtime_seconds, longest_incident_seconds
+
+init_database()
+monitoring_start_time = get_monitoring_start_time()
 
 while True:
     try:
@@ -59,14 +113,10 @@ while True:
             if incident_start_time is not None:
                 duration = (datetime.now() - incident_start_time).total_seconds()
                 logging.info(f"✅ RECOVERY: Service is back online. Incident lasted {duration:.0f} seconds.")
-                incident_start_time = None
 
-                total_incidents += 1
-                total_downtime_seconds += duration
-                if duration > longest_incident_seconds:
-                    longest_incident_seconds = duration
-
+                save_incident(incident_start_time, duration)
                 print_metrics()
+                incident_start_time = None
 
             if response_time_ms >= RESPONSE_TIME_CRITICAL_MS:
                 logging.error(f"🔴 Service is healthy but CRITICALLY SLOW: {response_time_ms:.0f}ms")
@@ -108,3 +158,4 @@ while True:
             alert_sent = True
 
     time.sleep(POLL_INTERVAL_SECONDS)
+
