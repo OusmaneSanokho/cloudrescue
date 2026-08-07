@@ -57,3 +57,28 @@ def calculate_metrics():
     longest_incident_seconds = max((row[0] for row in rows), default=0)
 
     return total_incidents, total_downtime_seconds, longest_incident_seconds
+def update_current_status(status, response_time_ms=None):
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO monitor_metadata (key, value) VALUES ('current_status', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = ?",
+        (status, status)
+    )
+    conn.commit()
+    conn.close()
+
+def get_current_status():
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM monitor_metadata WHERE key = 'current_status'")
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else "unknown"
+def get_recent_incidents(limit=10):
+    conn = sqlite3.connect("cloudrescue.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT start_time, duration_seconds FROM incidents ORDER BY id DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
