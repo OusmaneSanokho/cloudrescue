@@ -12,8 +12,7 @@ from config import (
     POLL_INTERVAL_SECONDS,
     ALERT_WINDOW_SECONDS,
 )
-from database import init_database, get_monitoring_start_time, save_incident, calculate_metrics
-
+from database import init_database, get_monitoring_start_time, save_incident, calculate_metrics, update_current_status
 failure_count = 0
 alert_sent = False
 incident_start_time = None
@@ -75,7 +74,7 @@ while True:
                 logging.warning(f"🟡 Service is healthy but slow: {response_time_ms:.0f}ms")
             else:
                 logging.info(f"Service is healthy: {data} ({response_time_ms:.0f}ms)")
-
+            update_current_status("healthy")
             failure_count = 0
             alert_sent = False
             restart_attempts = 0
@@ -85,7 +84,7 @@ while True:
                 incident_start_time = datetime.now()
 
             logging.warning(f"Service responded but is UNHEALTHY: {response.status_code} {data} (failure #{failure_count})")
-
+            update_current_status("unhealthy")
             failure_timestamps.append(datetime.now())
             failure_timestamps[:] = [t for t in failure_timestamps if (datetime.now() - t).total_seconds() <= ALERT_WINDOW_SECONDS]
 
@@ -99,7 +98,7 @@ while True:
             incident_start_time = datetime.now()
 
         logging.error(f"Service is DOWN - no response (failure #{failure_count})")
-
+        update_current_status("down")
         if failure_count % FAILURE_THRESHOLD == 0:
             if restart_attempts < MAX_RESTART_ATTEMPTS:
                 restart_attempts += 1
