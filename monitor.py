@@ -10,6 +10,7 @@ from config import (
     RESPONSE_TIME_WARNING_MS,
     RESPONSE_TIME_CRITICAL_MS,
     POLL_INTERVAL_SECONDS,
+    ALERT_WINDOW_SECONDS,
 )
 from database import init_database, get_monitoring_start_time, save_incident, calculate_metrics
 
@@ -17,6 +18,7 @@ failure_count = 0
 alert_sent = False
 incident_start_time = None
 restart_attempts = 0
+failure_timestamps = []
 
 logging.basicConfig(
     filename="cloudrescue.log",
@@ -83,8 +85,12 @@ while True:
                 incident_start_time = datetime.now()
 
             logging.warning(f"Service responded but is UNHEALTHY: {response.status_code} {data} (failure #{failure_count})")
-            if failure_count >= FAILURE_THRESHOLD and not alert_sent:
-                logging.critical(f"🚨 ALERT: Service has failed {failure_count} times in a row!")
+
+            failure_timestamps.append(datetime.now())
+            failure_timestamps[:] = [t for t in failure_timestamps if (datetime.now() - t).total_seconds() <= ALERT_WINDOW_SECONDS]
+
+            if len(failure_timestamps) >= FAILURE_THRESHOLD and not alert_sent:
+                logging.critical(f"🚨 ALERT: {len(failure_timestamps)} failures within the last {ALERT_WINDOW_SECONDS} seconds!")
                 alert_sent = True
 
     except requests.exceptions.ConnectionError:
