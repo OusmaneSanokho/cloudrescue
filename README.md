@@ -22,19 +22,19 @@ CloudRescue consists of five components, each with a single responsibility:
 
 ```mermaid
 graph TD
-    User[👤 You / Browser]
-    Config[config.py<br/>Environment Variables]
-    App[app.py<br/>Monitored Service<br/>Port 5000]
-    Monitor[monitor.py<br/>The Watcher]
-    DB[(database.py<br/>SQLite)]
-    Dashboard[dashboard.py<br/>Live Dashboard<br/>Port 5001]
+    Config[⚙️ config.py]
+    App[🟢 app.py<br/>Monitored Service<br/>:5000]
+    Monitor[🟠 monitor.py<br/>The Watcher]
+    DB[(🗄️ database.py<br/>SQLite)]
+    Dashboard[🔵 dashboard.py<br/>:5001]
+    User[👤 You]
 
-    Monitor -->|reads settings| Config
-    Monitor -->|GET /health every N seconds| App
-    Monitor -->|restarts on failure| App
-    Monitor -->|writes incidents & status| DB
-    Dashboard -->|reads metrics & status| DB
-    User -->|views| Dashboard
+    Config -.->|settings| Monitor
+    Monitor ==>|polls /health| App
+    Monitor -.->|restarts on failure| App
+    Monitor ==>|writes incidents| DB
+    DB ==>|metrics + status| Dashboard
+    Dashboard ==>|renders| User
 
     style App fill:#2d5,color:#fff
     style Monitor fill:#e94,color:#fff
