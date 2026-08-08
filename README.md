@@ -18,7 +18,32 @@ CloudRescue consists of five components, each with a single responsibility:
 
 `monitor.py` is decoupled from `app.py`'s implementation — it only depends on the HTTP health-check contract, meaning it could monitor any compatible service exposing a similar endpoint, not just this one.
 
-📸 **[SCREENSHOT: architecture diagram, if you make one later — optional]**
+`monitor.py` is decoupled from `app.py`'s implementation — it only depends on the HTTP health-check contract, meaning it could monitor any compatible service exposing a similar endpoint, not just this one.
+
+```mermaid
+graph TD
+    User[👤 You / Browser]
+    Config[config.py<br/>Environment Variables]
+    App[app.py<br/>Monitored Service<br/>Port 5000]
+    Monitor[monitor.py<br/>The Watcher]
+    DB[(database.py<br/>SQLite)]
+    Dashboard[dashboard.py<br/>Live Dashboard<br/>Port 5001]
+
+    Monitor -->|reads settings| Config
+    Monitor -->|GET /health every N seconds| App
+    Monitor -->|restarts on failure| App
+    Monitor -->|writes incidents & status| DB
+    Dashboard -->|reads metrics & status| DB
+    User -->|views| Dashboard
+
+    style App fill:#2d5,color:#fff
+    style Monitor fill:#e94,color:#fff
+    style Dashboard fill:#48c,color:#fff
+    style DB fill:#666,color:#fff
+    style Config fill:#999,color:#fff
+```
+
+## State Machine
 
 ## State Machine
 
