@@ -148,7 +148,64 @@ All thresholds are configurable via environment variables (see `config.py` for t
 $env:FAILURE_THRESHOLD=5
 $env:POLL_INTERVAL_SECONDS=10
 python monitor.py
+## Live Deployment
 
+CloudRescue isn't just a local demo — it's currently deployed and running on AWS, independent of my laptop being on.
+
+**Live dashboard:** http://98.91.28.21:5001
+
+### Infrastructure
+
+| Item | Value |
+|---|---|
+| Instance | `i-0aaf9ccd8daaf95b0` (`cloudrescue-server`) |
+| Type | `t3.micro` (AWS Free Tier eligible) |
+| OS | Ubuntu 26.04 LTS |
+| Region | `us-east-1c` |
+| Public IP | `98.91.28.21` |
+
+Setup on the server: `apt update && apt upgrade`, installed `python3-venv`, created a virtual environment, and installed dependencies with `pip install -r requirements.txt` inside it. Ubuntu blocks global `pip install` by default (the "externally-managed-environment" protection) — the correct fix is a proper venv, not `pip install --break-system-packages`, which just disables a safety check instead of solving the actual problem.
+
+### Security: restricted access as a deliberate tradeoff
+
+Both SSH (port 22) and the dashboard (port 5001) are locked to "My IP" in the security group, rather than open to `0.0.0.0/0`. This is more secure but means the security group has to be updated manually every time I connect from a different network — I hit this twice in practice (home → school, school → home) and had to update the rule both times. I'm treating this as a known, understood operational tradeoff (security over convenience), not an oversight.
+
+### Keeping processes alive after SSH disconnects
+
+All three processes (`app.py`, `monitor.py`, `dashboard.py`) need to keep running after I close my SSH session — a normal foreground process dies with the terminal.
+
+I first tried `tmux`: it worked fine for `app.py` and `monitor.py`, but `dashboard.py`'s session kept breaking — a corrupted paste left a session running nothing inside it, and repeated attempts at the `Ctrl+B` then `D` detach sequence came through as literal `^Bd` text instead of detaching. This happened in plain PowerShell too, so it wasn't a VS Code terminal quirk — something in the Windows/PowerShell/SSH client chain was swallowing or garbling the keystroke.
+
+I switched to `nohup` instead, which needs no interactive keystroke at all:
+
+\`\`\`bash
+nohup python3 app.py > app.log 2>&1 &
+nohup python3 monitor.py > monitor.log 2>&1 &
+nohup python3 dashboard.py > dashboard.log 2>&1 &
+\`\`\`
+
+Verified by closing the terminal completely and confirming the dashboard was still live and responding over 40 minutes later. All three now log to `app.log`, `monitor.log`, and `dashboard.log` respectively.
+
+### A real bug found during deployment: host binding vs. firewall rules
+
+The dashboard was unreachable externally even though the security group rule for port 5001 was correct. I diagnosed it step by step rather than guessing:
+
+1. Confirmed the EC2 instance itself was healthy.
+2. Confirmed the security group rule was correct.
+3. Ran `curl 127.0.0.1:5001` **from inside the server** — it worked, so the app was running fine.
+4. That narrowed it to something between "app is listening" and "the outside world can reach it" — which pointed at Flask's own bind address, not AWS at all.
+
+The cause: `app.run(port=5001)` defaults to binding only to `127.0.0.1` (localhost), so the app refuses any external connection no matter what the firewall allows. Fixed with:
+
+\`\`\`python
+app.run(host="0.0.0.0", port=5001)
+\`\`\`
+
+The lesson: network-level access control (security groups) and application-level listening behavior (host binding) are two separate layers, and both have to be correct independently — one being right doesn't imply the other is.
+
+### SSH key handling
+
+The private key (`cloudrescue-key.pem`) is stored locally only, added to `.gitignore` (`*.pem`), and was never committed to GitHub.
 
 ## Limitations
 
