@@ -11,6 +11,7 @@ from config import (
     RESPONSE_TIME_CRITICAL_MS,
     POLL_INTERVAL_SECONDS,
     ALERT_WINDOW_SECONDS,
+    APP_HOST,
 )
 from database import init_database, get_monitoring_start_time, save_incident, calculate_metrics, update_current_status
 failure_count = 0
@@ -53,7 +54,7 @@ monitoring_start_time = get_monitoring_start_time()
 while True:
     try:
         start_time = datetime.now()
-        response = requests.get("http://127.0.0.1:5000/health")
+        response = requests.get(f"http://{APP_HOST}:5000/health")
         end_time = datetime.now()
         response_time_ms = (end_time - start_time).total_seconds() * 1000
 
