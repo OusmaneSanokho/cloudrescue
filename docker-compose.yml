@@ -13,6 +13,7 @@ services:
     environment:
       - APP_HOST=app
       - DB_PATH=/app/data/cloudrescue.db
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
     volumes:
       - dbdata:/app/data
     depends_on:
