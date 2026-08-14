@@ -195,7 +195,9 @@ CloudRescue isn't just a local demo — it's currently deployed and running on A
 | Region | `us-east-1c` |
 | Public IP | `98.91.28.21` |
 
-Setup on the server: `apt update && apt upgrade`, installed `python3-venv`, created a virtual environment, and installed dependencies with `pip install -r requirements.txt` inside it. Ubuntu blocks global `pip install` by default (the "externally-managed-environment" protection) — the correct fix is a proper venv, not `pip install --break-system-packages`, which just disables a safety check instead of solving the actual problem.
+**Update (Docker migration):** the deployment now runs via Docker Compose instead of a Python virtual environment. The original venv-based setup is documented below for historical context, since the debugging process (the externally-managed-environment issue) remains a genuine lesson learned — but it is no longer how the live service actually runs.
+
+Original venv setup (superseded): `apt update && apt upgrade`, installed `python3-venv`, created a virtual environment, and installed dependencies with `pip install -r requirements.txt` inside it. Ubuntu blocks global `pip install` by default (the "externally-managed-environment" protection) — the correct fix is a proper venv, not `pip install --break-system-packages`, which just disables a safety check instead of solving the actual problem.
 
 ### Security: restricted access as a deliberate tradeoff
 
@@ -216,6 +218,12 @@ nohup python3 dashboard.py > dashboard.log 2>&1 &
 \`\`\`
 
 Verified by closing the terminal completely and confirming the dashboard was still live and responding over 40 minutes later. All three now log to `app.log`, `monitor.log`, and `dashboard.log` respectively.
+
+### Superseded: process management now handled by Docker
+
+The `tmux`/`nohup` approach above was necessary because raw Python processes have no built-in way to survive an SSH disconnect. Since migrating to Docker Compose, this problem is solved natively: containers started with `docker compose up -d` run as background daemons managed by the Docker Engine itself, independent of any SSH session. This was verified directly — the deployment was closed via `exit`, fully terminating the SSH connection, and the dashboard remained reachable and serving live data immediately after, with no `nohup` or `tmux` involved at all.
+
+Deploying an update now means, on the server: `git pull`, then `docker compose up --build -d` to rebuild and restart any changed containers in place.
 
 ### A real bug found during deployment: host binding vs. firewall rules
 
