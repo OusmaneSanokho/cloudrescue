@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.monitor
+    environment:
+      - APP_HOST=app
+      - DB_PATH=/app/data/cloudrescue.db
+    volumes:
+      - dbdata:/app/data
+    depends_on:
+      - app
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    ports:
+      - "5001:5001"
+    environment:
+      - DB_PATH=/app/data/cloudrescue.db
+    volumes:
+      - dbdata:/app/data
+    depends_on:
+      - app
+
+volumes:
+  dbdata:
