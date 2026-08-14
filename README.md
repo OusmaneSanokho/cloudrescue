@@ -148,6 +148,37 @@ All thresholds are configurable via environment variables (see `config.py` for t
 $env:FAILURE_THRESHOLD=5
 $env:POLL_INTERVAL_SECONDS=10
 python monitor.py
+## Containerization (Docker)
+
+CloudRescue is fully containerized using Docker and Docker Compose. Each of the three runtime components (`app.py`, `monitor.py`, `dashboard.py`) runs in its own isolated container, built from its own Dockerfile (`Dockerfile`, `Dockerfile.monitor`, `Dockerfile.dashboard`), all sharing the same base image (`python:3.11-slim`) and dependency set.
+
+### Why three containers instead of one
+
+`monitor.py` was already architecturally decoupled from `app.py` — it only depends on the HTTP `/health` contract, not on shared memory or direct code access. Splitting each component into its own container preserves that decision: each can be rebuilt, restarted, or fail independently, matching how the components were already designed to relate to each other.
+
+### Networking
+
+Containers reach each other by service name rather than `127.0.0.1` (each container has its own isolated network namespace, so `127.0.0.1` only ever refers to the container itself). `monitor.py`'s target address is set via an `APP_HOST` environment variable, defaulting to `127.0.0.1` for local (non-Docker) use, and overridden to `app` in `docker-compose.yml`.
+
+### Shared SQLite persistence across containers
+
+`monitor.py` and `dashboard.py` both need to read and write the same `cloudrescue.db` file, but containers have separate filesystems by default. This is solved with a named Docker volume (`dbdata`) mounted into both containers, so they share the same physical file rather than separate copies with the same name.
+
+**A real bug found while building this:** mounting the volume directly onto the database file's path (`/app/cloudrescue.db`) caused Docker to create a *folder* at that path instead of treating it as a file mount target (Docker's default behavior for a named volume with nothing yet at that path). SQLite then failed with `unable to open database file`, because it was trying to open a directory as if it were a file. Fixed by mounting the volume on the *parent folder* instead (`/app/data`) and pointing the database path (`DB_PATH`, itself now configurable via environment variable rather than hardcoded) at a file inside that folder.
+
+### Running with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This builds all three images and starts all three containers together, networked and sharing the persistent volume. The dashboard is available at `http://localhost:5001`, the monitored service at `http://localhost:5000`.
+
+### Verified: failure injection across containers
+
+The existing manual failure-injection testing (see above) was re-run against the containerized setup by stopping the `app` container directly (`docker stop cloudrescue-app-1`) rather than killing a local process. Failure detection, alert suppression, restart-attempt capping, and recovery detection all behaved identically to the non-containerized version — confirmed via a real 365-second simulated outage, correctly logged, correctly recovered, and correctly reflected in calculated Availability/MTTR once the container was manually restarted.
+
+**A real limitation this test proved, not just predicted:** the automatic recovery mechanism (`subprocess.Popen(["python", "app.py"])`) does not work correctly across container boundaries. When triggered, it spawns a new `app.py` process *inside monitor's own container* rather than restarting the actual `app` container — an unreachable, duplicate process, while the real outage remains unresolved. This is the containerized manifestation of the previously-documented limitation on restart-command generalization (see Limitations), now demonstrated with real logs rather than described theoretically. Correctly restarting a sibling container from within a container would require giving `monitor` access to the Docker Engine itself (e.g., mounting the Docker socket) — a meaningful architectural change with real security tradeoffs, deliberately not implemented in this phase.
 ## Live Deployment
 
 CloudRescue isn't just a local demo — it's currently deployed and running on AWS, independent of my laptop being on.
@@ -209,13 +240,13 @@ The private key (`cloudrescue-key.pem`) is stored locally only, added to `.gitig
 
 ## Limitations
 
-- **Single point of failure** — if the monitor process itself crashes, nothing watches it. Solving this properly usually involves container orchestration or a process supervisor — deliberately out of scope for a single-machine project, but a natural next step.
-- **No real-time human notification** — alerts are logged with `CRITICAL` severity but not sent via email/SMS/Slack. The alerting *pipeline* is built; only the final delivery step is missing.
+- **Single point of failure** — if the monitor process itself crashes, nothing watches it. **Planned next improvement:** address this directly, likely via a lightweight process supervisor or container restart policy (e.g., Docker Compose's `restart: unless-stopped`) rather than full orchestration, which would be disproportionate for this project's scale.
+- **No real-time human notification** — alerts are logged with `CRITICAL` severity but not sent via email/SMS/Slack. The alerting *pipeline* is built; only the final delivery step is missing. **Planned next improvement:** wire up a real delivery channel (Slack webhook or AWS SES email), since the underlying alert-firing logic already exists and this is primarily an integration task.
+- **Restart command does not work across container boundaries** — proven via direct testing (see Containerization section above): `subprocess.Popen(["python", "app.py"])` spawns a new process *inside monitor's own container* rather than restarting the actual `app` container, leaving real outages unresolved despite log messages suggesting a restart occurred. Correctly fixing this would require `monitor` to have access to the Docker Engine itself (e.g., via the Docker socket) to restart a sibling container — a real architectural and security tradeoff, not yet implemented.
 - **No authentication on `/health` or the dashboard** — acceptable for a local learning project, not for a real deployment.
 - **Single-instance SQLite** — appropriate for one monitor process; would need PostgreSQL only if scaled to multiple monitor instances or remote access.
 - **Manual version numbering** — becomes meaningful once actual deployment/build metadata exists.
 - **No automated test suite** — all testing was done through documented manual fault injection (see Failure-Injection Testing above).
-- **Restart command is not configurable or sandboxed** — hardcoded to relaunch `app.py`; would need generalizing to safely support arbitrary monitored services.
 
 ## Future Improvements
 
