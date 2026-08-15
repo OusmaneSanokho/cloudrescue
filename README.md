@@ -1,20 +1,20 @@
 # CloudRescue
 
-**CloudRescue** is a reliability monitoring and bounded recovery system I built to understand how real SRE (Site Reliability Engineering) systems detect failures, alert appropriately, and recover safely — implemented from scratch, not assembled from a tutorial.
+**CloudRescue** is a reliability monitoring and bounded recovery system I built to understand how real SRE (Site Reliability Engineering) systems detect failures, alert appropriately, and recover safely , implemented from scratch, not assembled from a tutorial.
 
 ## Why I built this
 
-After deploying a service, how do engineers actually know something has gone wrong? How do they track a system's health once it's live, and diagnose exactly what broke? I built CloudRescue to answer these questions for myself — not just to read about SRE practices, but to actually implement detection, alerting, and recovery from scratch, and understand the reasoning behind each design decision.
+After deploying a service, how do engineers actually know something has gone wrong? How do they track a system's health once it's live, and diagnose exactly what broke? I built CloudRescue to answer these questions for myself  not just to read about SRE practices, but to actually implement detection, alerting, and recovery from scratch, and understand the reasoning behind each design decision.
 
 ## Architecture
 
 CloudRescue consists of five components, each with a single responsibility:
 
-- **`app.py`** — a minimal Flask service being monitored, exposing a `/health` endpoint that reports status, uptime, version, and hostname.
-- **`monitor.py`** — the core watcher. Polls `/health` on a configurable interval, distinguishes between healthy, degraded ("zombie"), and fully-down states, tracks failures using both consecutive and rolling-time-window counting, triggers alerts, and attempts bounded automatic recovery.
-- **`config.py`** — centralizes all tunable settings (thresholds, intervals, limits) as environment variables with sensible defaults, so behavior can be adjusted without touching code.
-- **`database.py`** — persists incident history and current status to SQLite, so metrics survive restarts and reflect true, long-term reliability rather than a single session.
-- **`dashboard.py`** — a lightweight Flask web dashboard, auto-refreshing every 5 seconds, displaying live status, key metrics (MTTR, availability, downtime), and recent incident history.
+- **`app.py`** , a minimal Flask service being monitored, exposing a `/health` endpoint that reports status, uptime, version, and hostname.
+- **`monitor.py`** , the core watcher. Polls `/health` on a configurable interval, distinguishes between healthy, degraded ("zombie"), and fully-down states, tracks failures using both consecutive and rolling-time-window counting, triggers alerts, and attempts bounded automatic recovery.
+- **`config.py`** , centralizes all tunable settings (thresholds, intervals, limits) as environment variables with sensible defaults, so behavior can be adjusted without touching code.
+- **`database.py`** , persists incident history and current status to SQLite, so metrics survive restarts and reflect true, long-term reliability rather than a single session.
+- **`dashboard.py`** , a lightweight Flask web dashboard, auto-refreshing every 5 seconds, displaying live status, key metrics (MTTR, availability, downtime), and recent incident history.
 
 `monitor.py` is decoupled from `app.py`'s implementation — it only depends on the HTTP health-check contract, meaning it could monitor any compatible service exposing a similar endpoint, not just this one.
 
@@ -61,21 +61,22 @@ graph TD
 
 CloudRescue only attempts recovery after a service reaches a confirmed failure threshold — not on the first failed check. Recovery is performed via `subprocess.Popen()`, launching a fresh instance of the monitored service. Recovery attempts are capped (`MAX_RESTART_ATTEMPTS`, default 3) to prevent restart storms; once the cap is reached, the system stops attempting recovery and logs that manual intervention is required, rather than retrying indefinitely. Recovery success is verified through the monitor's next scheduled health check, not assumed immediately after the restart command runs.
 
-**Known constraint:** the restart command itself is not currently configurable or sandboxed — it is hardcoded to relaunch `app.py`. This is acceptable for this project's scope but would need hardening (configurable, validated commands) before use against arbitrary services.
+**Known constraint:** the restart command itself is not currently configurable or sandboxed , it is hardcoded to relaunch `app.py`. This is acceptable for this project's scope but would need hardening (configurable, validated commands) before use against arbitrary services.
 
 ## Features
 
-- **Health monitoring** — polls a `/health` endpoint on a configurable interval
-- **Three-state failure detection** — distinguishes healthy, "zombie" (responding but unhealthy), and fully-down states
-- **Dual alerting strategies** — consecutive-failure detection *and* rolling time-window detection. Consecutive detection catches sustained outages quickly; the rolling window catches intermittent/flaky failures that never fail three times in a strict, unbroken row but still indicate a real problem
-- **Alert suppression** — alerts fire once per incident, not repeatedly, avoiding alert fatigue
-- **Bounded automatic recovery** — restarts a crashed service, with a capped retry limit to prevent restart storms
-- **Incident tracking** — records every incident's start time and duration to a persistent database
-- **Reliability metrics** — calculates incident-based MTTR and Availability % from persisted detection and recovery timestamps
-- **Structured logging** — uses Python's standard `logging` module with proper severity levels (INFO/WARNING/ERROR/CRITICAL)
-- **Configuration via environment variables** — all thresholds and intervals adjustable without code changes
-- **Live dashboard** — auto-refreshing web view of current status, metrics, and recent incident history
-- **Response time monitoring** — measures latency, flags degraded performance separately from outright failure
+- **Health monitoring** , polls a `/health` endpoint on a configurable interval
+- **Three-state failure detection** , distinguishes healthy, "zombie" (responding but unhealthy), and fully-down states
+- **Dual alerting strategies** , consecutive-failure detection *and* rolling time-window detection. Consecutive detection catches sustained outages quickly; the rolling window catches intermittent/flaky failures that never fail three times in a strict, unbroken row but still indicate a real problem
+- **Alert suppression** , alerts fire once per incident, not repeatedly, avoiding alert fatigue
+- **Bounded automatic recovery** , restarts a crashed service, with a capped retry limit to prevent restart storms
+- **Incident tracking** , records every incident's start time and duration to a persistent database
+- **Reliability metrics** , calculates incident-based MTTR and Availability % from persisted detection and recovery timestamps
+- **Structured logging** , uses Python's standard `logging` module with proper severity levels (INFO/WARNING/ERROR/CRITICAL)
+- **Configuration via environment variables** , all thresholds and intervals adjustable without code changes
+- **Live dashboard** , auto-refreshing web view of current status, metrics, and recent incident history
+- **Response time monitoring** , measures latency, flags degraded performance separately from outright failure
+- **Real-time Slack notifications** , critical alerts are delivered directly to a Slack channel via an Incoming Webhook, not just logged, so a human is actually notified without needing to check logs
 
 ## Screenshots
 
@@ -179,6 +180,23 @@ This builds all three images and starts all three containers together, networked
 The existing manual failure-injection testing (see above) was re-run against the containerized setup by stopping the `app` container directly (`docker stop cloudrescue-app-1`) rather than killing a local process. Failure detection, alert suppression, restart-attempt capping, and recovery detection all behaved identically to the non-containerized version — confirmed via a real 365-second simulated outage, correctly logged, correctly recovered, and correctly reflected in calculated Availability/MTTR once the container was manually restarted.
 
 **A real limitation this test proved, not just predicted:** the automatic recovery mechanism (`subprocess.Popen(["python", "app.py"])`) does not work correctly across container boundaries. When triggered, it spawns a new `app.py` process *inside monitor's own container* rather than restarting the actual `app` container — an unreachable, duplicate process, while the real outage remains unresolved. This is the containerized manifestation of the previously-documented limitation on restart-command generalization (see Limitations), now demonstrated with real logs rather than described theoretically. Correctly restarting a sibling container from within a container would require giving `monitor` access to the Docker Engine itself (e.g., mounting the Docker socket) — a meaningful architectural change with real security tradeoffs, deliberately not implemented in this phase.
+## Real-Time Notifications (Slack)
+
+Alerts were previously only logged (`logging.critical`) — visible only if someone was actively watching logs or the dashboard. This is now supplemented with real-time delivery to Slack via an Incoming Webhook.
+
+### How it works
+
+A dedicated Slack app ("CloudRescue Alerts") posts into a `#cloudrescue-alerts` channel using an Incoming Webhook — a unique URL that accepts a simple HTTP POST with a JSON message body. `monitor.py`'s `send_slack_alert(message)` function checks whether `SLACK_WEBHOOK_URL` is configured, and if so, sends the alert text as a POST request with a 5-second timeout. A failed or unconfigured webhook is caught and logged, but never crashes the monitoring loop — notification delivery is treated as best-effort, secondary to the monitoring system's own stability.
+
+This fires alongside both existing alert points (the rolling-window alert and the consecutive-failure alert), preserving the existing `alert_sent` suppression logic — so Slack gets exactly one notification per incident, not repeated spam.
+
+### Configuration
+
+The webhook URL is supplied via the `SLACK_WEBHOOK_URL` environment variable — never hardcoded, never committed. Locally, this is set via a `.env` file (excluded via `.gitignore`) that Docker Compose reads automatically. On the AWS server, a separate `.env` file is created directly via SSH, following the same pattern already used for the SSH private key: real secrets live only on the machines that need them, never in the Git repository.
+
+### Verified
+
+Tested end-to-end in three separate environments: locally via raw Python processes, locally via Docker Compose, and on the live AWS deployment — in each case, a real simulated outage correctly triggered a real Slack message in `#cloudrescue-alerts`, and recovery was correctly logged afterward.
 ## Live Deployment
 
 CloudRescue isn't just a local demo — it's currently deployed and running on AWS, independent of my laptop being on.
@@ -248,8 +266,7 @@ The private key (`cloudrescue-key.pem`) is stored locally only, added to `.gitig
 
 ## Limitations
 
-- **Single point of failure** — if the monitor process itself crashes, nothing watches it. **Planned next improvement:** address this directly, likely via a lightweight process supervisor or container restart policy (e.g., Docker Compose's `restart: unless-stopped`) rather than full orchestration, which would be disproportionate for this project's scale.
-- **No real-time human notification** — alerts are logged with `CRITICAL` severity but not sent via email/SMS/Slack. The alerting *pipeline* is built; only the final delivery step is missing. **Planned next improvement:** wire up a real delivery channel (Slack webhook or AWS SES email), since the underlying alert-firing logic already exists and this is primarily an integration task.
+- **Single point of failure — RESOLVED.** Originally, if the monitor process itself crashed, nothing would watch it. Fixed by adding `restart: unless-stopped` to the monitor service in `docker-compose.yml`. Verified via direct testing: killed the monitor process from inside its own container (`os.kill(1, 9)`), confirmed Docker automatically restarted it without any manual intervention, and confirmed monitoring resumed correctly afterward. Note: an external `docker kill` on the container itself does *not* trigger a restart under this policy — Docker treats an explicit external kill as an intentional stop, by design. This fix specifically covers the process crashing on its own, which is the actual failure mode this limitation described.
 - **Restart command does not work across container boundaries** — proven via direct testing (see Containerization section above): `subprocess.Popen(["python", "app.py"])` spawns a new process *inside monitor's own container* rather than restarting the actual `app` container, leaving real outages unresolved despite log messages suggesting a restart occurred. Correctly fixing this would require `monitor` to have access to the Docker Engine itself (e.g., via the Docker socket) to restart a sibling container — a real architectural and security tradeoff, not yet implemented.
 - **No authentication on `/health` or the dashboard** — acceptable for a local learning project, not for a real deployment.
 - **Single-instance SQLite** — appropriate for one monitor process; would need PostgreSQL only if scaled to multiple monitor instances or remote access.
@@ -258,24 +275,17 @@ The private key (`cloudrescue-key.pem`) is stored locally only, added to `.gitig
 
 ## Future Improvements
 
+**Done since this section was first written:** Docker + Docker Compose, CI via GitHub Actions, AWS deployment (migrated to Docker Compose), real-time Slack notifications, single-point-of-failure fix (Docker restart policy). Kept below for what's genuinely still outstanding.
+
 **Prioritized next:**
-- Automated test suite (`pytest`) covering the state machine, alerting, recovery, persistence, and metrics — including regression tests for the two bugs already found and fixed
-- Docker + CI (GitHub Actions: install, lint, test) as a reproducible deployment foundation, before any cloud deployment
-- AWS deployment (a small, documented, single-instance deployment — not an over-built multi-service architecture)
+- Expand the `pytest` suite beyond the current two tests (health endpoint, restart-threshold regression) to cover rolling-window detection, alert suppression, recovery/incident persistence, and metrics calculation
+- Monitoring ecosystem overview — a conceptual comparison of what CloudRescue manually implements versus what tools like Prometheus, Grafana, and AWS CloudWatch provide
 
 **Also planned, lower priority:**
-- Real-time notifications (email via AWS SES, or Slack webhook)
 - Authentication on `/health` and dashboard endpoints
 - Auto-generated version numbers (from Git tags/build metadata)
 - Prometheus-compatible `/metrics` endpoint
-- Easier local testing of restarted background processes
-
-**Deliberately deprioritized for now** (documented tradeoffs, not oversights):
-- CPU/memory usage in the health endpoint — a health endpoint should primarily answer whether the service can serve requests, not double as a resource-metrics endpoint
-- Migration to PostgreSQL — unnecessary until a genuine multi-instance or remote-access requirement exists
-- Dashboard rebuild in Next.js — visual polish matters less than correctness of the underlying monitoring logic
-- Kubernetes — would complicate and partially duplicate the supervision model this project already implements; only worth adding if I can clearly justify what responsibility moves to Kubernetes versus what CloudRescue itself still owns
-
+- Generalizing/sandboxing the restart command, and solving the container-boundary restart limitation (likely via Docker socket access)
 ## Lessons Learned
 
 Building CloudRescue taught me that alerting is far harder to get right than it first appears. A naive "alert on every failure" approach either floods the operator with noise or, in the case of consecutive-only counting, silently misses real problems — flaky services that fail often but never in a strict, unbroken sequence. Getting alerting right required careful, deliberate tuning: consecutive-failure detection, a separate rolling time-window, alert suppression to avoid duplicate noise, and retry caps to prevent the recovery system itself from making things worse.
