@@ -10,6 +10,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.monitor
+    restart: unless-stopped
     environment:
       - APP_HOST=app
       - DB_PATH=/app/data/cloudrescue.db
