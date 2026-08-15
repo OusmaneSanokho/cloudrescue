@@ -3,3 +3,4 @@ cloudrescue.log
 __pycache__/
 cloudrescue.db
 *.pem
+.env

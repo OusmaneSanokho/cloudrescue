@@ -12,12 +12,22 @@ from config import (
     POLL_INTERVAL_SECONDS,
     ALERT_WINDOW_SECONDS,
     APP_HOST,
+    SLACK_WEBHOOK_URL,
 )
 from database import init_database, get_monitoring_start_time, save_incident, calculate_metrics, update_current_status
 def should_attempt_restart(failure_count, threshold, restart_attempts, max_restart_attempts):
     if failure_count % threshold != 0:
         return False
     return restart_attempts < max_restart_attempts
+def send_slack_alert(message):
+    if not SLACK_WEBHOOK_URL:
+        logging.warning("Slack webhook not configured, skipping notification.")
+        return
+
+    try:
+        requests.post(SLACK_WEBHOOK_URL, json={"text": message}, timeout=5)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to send Slack notification: {e}")
 failure_count = 0
 alert_sent = False
 incident_start_time = None
@@ -96,6 +106,7 @@ if __name__ == "__main__":
 
                 if len(failure_timestamps) >= FAILURE_THRESHOLD and not alert_sent:
                     logging.critical(f"🚨 ALERT: {len(failure_timestamps)} failures within the last {ALERT_WINDOW_SECONDS} seconds!")
+                    send_slack_alert(f"🚨 CloudRescue ALERT: {len(failure_timestamps)} failures within the last {ALERT_WINDOW_SECONDS} seconds!")
                     alert_sent = True
 
         except requests.exceptions.ConnectionError:
@@ -114,6 +125,7 @@ if __name__ == "__main__":
 
             if failure_count >= FAILURE_THRESHOLD and not alert_sent:
                 logging.critical(f"🚨 ALERT: Service has failed {failure_count} times in a row!")
+                send_slack_alert(f"🚨 CloudRescue ALERT: Service has failed {failure_count} times in a row!")
                 alert_sent = True
 
         time.sleep(POLL_INTERVAL_SECONDS)
