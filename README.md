@@ -80,12 +80,16 @@ CloudRescue only attempts recovery after a service reaches a confirmed failure t
 
 ## Screenshots
 
-📸 **[SCREENSHOT: dashboard showing healthy status + metrics]**
+## Screenshots
 
-📸 **[SCREENSHOT: dashboard showing an active incident, if you have one]**
+**Dashboard — healthy status:**
+![Dashboard healthy](screenshots/dashboard-healthy.png)
 
-📸 **[SCREENSHOT: terminal log output showing DOWN → RESTART → RECOVERY sequence]**
+**Dashboard — active incident:**
+![Dashboard incident](screenshots/dashboard-incident.png)
 
+**Monitor logs — recovery detected:**
+![Monitor recovery log](screenshots/monitor-recovery-log.png)
 ## Failure-Injection Testing
 
 All testing was performed through deliberate manual fault injection (stopping/breaking the monitored service and observing the response), rather than an automated suite. This table documents the scenarios verified during development:
